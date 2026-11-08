@@ -64,6 +64,15 @@ function party_color(string $party): string {
     return "hsl($h, 55%, 38%)";
 }
 
+function party_full(string $p): string {
+    $m = ['APC' => 'All Progressives Congress', 'APP' => 'Action Peoples Party', 'NDC' => 'National Democratic Congress',
+          'PDP' => 'Peoples Democratic Party', 'ADC' => 'African Democratic Congress', 'YPP' => 'Young Progressives Party',
+          'APGA' => 'All Progressives Grand Alliance', 'AAC' => 'African Action Congress', 'LP' => 'Labour Party',
+          'Accord' => 'Accord', 'AA' => 'Action Alliance', 'ADP' => 'Action Democratic Party', 'APM' => 'Allied Peoples Movement',
+          'NRM' => 'National Rescue Movement', 'SDP' => 'Social Democratic Party', 'ZLP' => 'Zenith Labour Party'];
+    return $m[$p] ?? $p;
+}
+
 function nice_date(string $dt): string { return date('F j, Y', strtotime($dt)); }
 function nice_datetime(string $dt): string { return date('F j, Y \a\t g:i a', strtotime($dt)); }
 function compact_num(int $n): string {

@@ -9,7 +9,7 @@ $st = db()->prepare('SELECT * FROM polls WHERE id = ?');
 $st->execute([$pid]);
 $poll = $st->fetch();
 if (!$poll) redirect(url(''));
-$back = poll_url($poll) . '#voteForm';
+$back = poll_url($poll) . '#poll';
 
 $st = db()->prepare('SELECT id FROM candidates WHERE id = ? AND poll_id = ?');
 $st->execute([$cid, $pid]);

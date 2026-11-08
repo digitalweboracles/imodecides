@@ -45,6 +45,28 @@ function migrate(PDO $pdo): void {
     if ((int)$pdo->query('SELECT COUNT(*) FROM positions')->fetchColumn() === 0) seed($pdo);
     import_legacy_votes($pdo);
     import_legacy_hor($pdo);
+    fix_authentic_v1($pdo);
+}
+
+/** Match the original site exactly: constituency names as written there, answer times in UTC. Runs once. */
+function fix_authentic_v1(PDO $pdo): void {
+    if ($pdo->query("SELECT v FROM settings WHERE k = 'authentic_v1'")->fetchColumn()) return;
+    $names = [
+        'oguta-ohaji-egbema-oru-west' => 'Oguta/ Ohaji Egbema/ Oru west',
+        'oru-east-orsu-orlu' => 'Oru East / Orsu / Orlu',
+        'owerri-municipal-owerri-west-owerri-north' => 'Owerri Municipal / Owerri West / Owerri North',
+        'imo-east-senatorial-candidates-2027' => 'IMO EAST (OWERRI ZONE)',
+        'imo-west-senatorial-candidates' => 'IMO WEST (ORLU ZONE)',
+        'imo-north-senatorial-candidates' => 'IMO NORTH (OKIGWE ZONE)',
+    ];
+    $st = $pdo->prepare('UPDATE polls SET name = ? WHERE slug = ?');
+    foreach ($names as $slug => $n) $st->execute([$n, $slug]);
+    // Imported answers were stored in Lagos time (UTC+1); the original shows UTC. New-site answers (after 8 Nov 2026 18:00 UTC) are already UTC.
+    if (!$pdo->query("SELECT v FROM settings WHERE k = 'utc_times'")->fetchColumn()) {
+        $pdo->exec("UPDATE comments SET created_at = datetime(created_at, '-1 hour') WHERE created_at < '2026-11-08 18:00:00'");
+        $pdo->exec("INSERT INTO settings (k, v) VALUES ('utc_times', '1') ON CONFLICT(k) DO UPDATE SET v = excluded.v");
+    }
+    $pdo->prepare("INSERT INTO settings (k, v) VALUES ('authentic_v1', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v")->execute([date('c')]);
 }
 
 /** Vote totals carried over from the old imodecides.com poll (read 8 Nov 2026). Runs once. */
@@ -175,6 +197,9 @@ function seed(PDO $pdo): void {
         [null, 'Philip Holdings', 'Everyone who is sensible enough will understand that Hon Emeka Chinedu is the man for the job', null, '2026-11-07 12:18:45'],
     ];
     foreach ($rows as $r) $c->execute([$ahiazu, $r[0], $r[1], $r[2], $r[3], $r[4]]);
+    // the times above were written in Lagos time; store them in UTC like the original site
+    $pdo->exec("UPDATE comments SET created_at = datetime(created_at, '-1 hour')");
+    $pdo->exec("INSERT INTO settings (k, v) VALUES ('utc_times', '1')");
     $pdo->commit();
 }
 

@@ -239,5 +239,5 @@ admin_head('Admin'); ?>
 
 function admin_head(string $t): void { ?><!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
 <title><?= e($t) ?> – Imo Decides</title><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="<?= url('assets/css/style.css') ?>?v=3"></head><body class="admin-body"><?php }
+<link rel="stylesheet" href="<?= url('assets/css/style.css') ?>?v=10"></head><body class="admin-body"><?php }
 function admin_foot(): void { echo '</body></html>'; }

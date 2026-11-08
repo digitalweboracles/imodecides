@@ -1,31 +1,41 @@
-// Copy link
-document.querySelectorAll('[data-copy]').forEach(function (b) {
-  b.addEventListener('click', function () {
-    var t = b.getAttribute('data-copy');
-    (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).catch(function () {
-      var i = document.createElement('input'); i.value = t; document.body.appendChild(i); i.select(); document.execCommand('copy'); i.remove();
-    });
-    var o = b.textContent; b.textContent = 'Copied ✓'; setTimeout(function () { b.textContent = o; }, 1600);
+// Vote / Results screens (like the original poll widget)
+document.querySelectorAll('[data-show]').forEach(function (a) {
+  a.addEventListener('click', function (e) {
+    e.preventDefault();
+    var v = document.getElementById('voteForm'), r = document.getElementById('pollResults');
+    var showResults = a.dataset.show === 'results';
+    if (v) v.hidden = showResults;
+    if (r) {
+      r.hidden = !showResults;
+      if (showResults) r.querySelectorAll('.dem-fill').forEach(function (f) { var w = f.style.width; f.style.width = '0'; setTimeout(function () { f.style.width = w; }, 30); });
+    }
+  });
+});
+
+// "Leave an answer" opens the form
+var form = document.getElementById('respond');
+document.querySelectorAll('[data-toggle-form]').forEach(function (b) {
+  b.addEventListener('click', function (e) {
+    e.preventDefault(); form.hidden = false;
+    form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    form.querySelector('input[name=name]').focus();
   });
 });
 
 // Reply to an answer
 var pid = document.getElementById('parentId'), rt = document.getElementById('replyingTo');
 document.querySelectorAll('.c-reply').forEach(function (b) {
-  b.addEventListener('click', function () {
+  b.addEventListener('click', function (e) {
+    e.preventDefault(); form.hidden = false;
     pid.value = b.dataset.id; rt.hidden = false; rt.querySelector('b').textContent = b.dataset.name;
-    document.getElementById('respond').scrollIntoView({ behavior: 'smooth', block: 'center' });
-    document.querySelector('#respond textarea').focus();
+    form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    form.querySelector('textarea').focus();
   });
 });
 var cr = document.getElementById('cancelReply');
 if (cr) cr.addEventListener('click', function (e) { e.preventDefault(); pid.value = ''; rt.hidden = true; });
-
-// Animate result bars on load
-document.querySelectorAll('.bar span').forEach(function (s) {
-  var w = s.style.width; s.style.width = '0'; requestAnimationFrame(function () { setTimeout(function () { s.style.width = w; }, 60); });
-});
+if (form && location.hash === '#respond') form.hidden = false;
 
 // Prevent double vote submit
 var vf = document.getElementById('voteForm');
-if (vf) vf.addEventListener('submit', function () { var b = vf.querySelector('button[type=submit]'); if (b) { b.disabled = true; b.textContent = 'Submitting…'; } });
+if (vf) vf.addEventListener('submit', function () { var b = vf.querySelector('button[type=submit]'); if (b) { b.disabled = true; b.textContent = 'Voting…'; } });

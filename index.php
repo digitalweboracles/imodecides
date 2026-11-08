@@ -1,61 +1,41 @@
 <?php
 require_once __DIR__ . '/includes/functions.php';
-$positions = db()->query("SELECT p.*,
-    (SELECT COUNT(*) FROM polls pl WHERE pl.position_id = p.id) AS polls,
-    (SELECT COUNT(*) FROM votes v JOIN polls pl ON pl.id = v.poll_id WHERE pl.position_id = p.id)
-    + (SELECT COALESCE(SUM(c.base_votes),0) FROM candidates c JOIN polls pl ON pl.id = c.poll_id WHERE pl.position_id = p.id) AS votes
-    FROM positions p ORDER BY sort")->fetchAll();
-$totalVotes = (int)db()->query('SELECT (SELECT COUNT(*) FROM votes) + (SELECT COALESCE(SUM(base_votes),0) FROM candidates)')->fetchColumn();
-$totalCands = (int)db()->query('SELECT COUNT(*) FROM candidates')->fetchColumn();
-$latest = db()->query("SELECT pl.*, (SELECT COUNT(*) FROM candidates c WHERE c.poll_id = pl.id) AS cands
-    FROM polls pl WHERE (SELECT COUNT(*) FROM candidates c WHERE c.poll_id = pl.id) > 0
-    ORDER BY pl.created_at DESC LIMIT 4")->fetchAll();
-$icons = ['governor' => '🏛️', 'senate' => '⚖️', 'house-of-representative' => '🏢', 'house-of-assembly' => '🗳️'];
+$positions = db()->query('SELECT * FROM positions ORDER BY sort')->fetchAll();
+$pageTitle = SITE_NAME . ' – ' . SITE_TAGLINE;
+$ogTitle = SITE_NAME;
+$hero = media_url('og.jpg');
+ob_start(); ?>
+<section class="hero" <?php if ($hero): ?>style="--hero:url('<?= e($hero) ?>')"<?php endif; ?>>
+  <div class="hero-in">
+    <div class="hero-txt">
+      <h2>Share &amp; grow the world's knowledge!</h2>
+      <p>We want to connect the people who have knowledge to the people who need it, to bring together people with different perspectives so they can understand each other better, and to empower everyone to share their knowledge.</p>
+    </div>
+    <a class="btn-green" href="<?= url('house-of-representative/') ?>">Explore Candidates</a>
+  </div>
+</section>
+<?php $heroHtml = ob_get_clean();
 require __DIR__ . '/includes/header.php';
 ?>
-<section class="hero">
-  <div class="wrap hero-in">
-    <span class="eyebrow">IMO DECIDES 2027</span>
-    <h1>Who Should Lead in Imo?</h1>
-    <p>Explore the candidates, compare your options and participate in Imo State’s public opinion polls.</p>
-    <div class="hero-stats">
-      <div><b><?= number_format($totalCands) ?></b><span>Candidates</span></div>
-      <div><b><?= number_format($totalVotes) ?></b><span>Votes cast</span></div>
-      <div><b>27</b><span>LGAs</span></div>
-    </div>
-  </div>
-</section>
 
-<section class="wrap section">
-  <div class="section-head">
-    <h2>Choose a Position</h2>
+
+<div class="box page-box">
+  <div class="home-intro">
+    <h2 class="kicker">IMO DECIDES 2027</h2>
+    <h1 class="big">Who Should Lead in Imo?</h1>
+    <p>Explore the candidates, compare your options and participate in Imo State’s public opinion polls.</p>
+    <h1 class="big">Choose a Position</h1>
     <p>Select an election position below to explore the candidates and participate in the poll.</p>
   </div>
-  <div class="grid positions">
+  <div class="gcards g4">
     <?php foreach ($positions as $p): ?>
-      <a class="card position" href="<?= position_url($p) ?>">
-        <span class="pos-icon"><?= $icons[$p['slug']] ?? '🗳️' ?></span>
-        <h3><?= e($p['title']) ?></h3>
+      <div class="gcard">
+        <h2><?= e($p['title']) ?></h2>
         <p><?= e($p['tagline']) ?></p>
-        <div class="pos-meta"><span><?= (int)$p['polls'] ?> polls</span><span><?= number_format($p['votes']) ?> votes</span></div>
-        <span class="btn btn-sm">Explore Candidates →</span>
-      </a>
+        <a class="gbtn" href="<?= position_url($p) ?>">Explore Candidates</a>
+      </div>
     <?php endforeach; ?>
   </div>
-</section>
-
-<?php if ($latest): ?>
-<section class="wrap section">
-  <div class="section-head"><h2>Active Polls</h2></div>
-  <div class="grid polls-grid">
-    <?php foreach ($latest as $pl): ?>
-      <a class="card poll-card" href="<?= poll_url($pl) ?>">
-        <h3><?= e($pl['heading']) ?></h3>
-        <div class="pos-meta"><span><?= (int)$pl['cands'] ?> candidates</span><span><?= compact_num((int)$pl['views']) ?> views</span></div>
-        <span class="link">Vote now →</span>
-      </a>
-    <?php endforeach; ?>
-  </div>
-</section>
-<?php endif; ?>
+  <?php $shareUrl = abs_url(''); $shareTxt = 'IMO DECIDES 2027'; include __DIR__ . '/includes/share.php'; ?>
+</div>
 <?php require __DIR__ . '/includes/footer.php'; ?>

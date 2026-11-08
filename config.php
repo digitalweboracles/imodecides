@@ -26,7 +26,8 @@ define('LEGACY_ASSETS', [
     'comment-233.jpg' => 'https://imodecides.com/wp-content/uploads/2026/11/Snapchat-1179847210.jpg',
 ]);
 
-date_default_timezone_set('Africa/Lagos');
+date_default_timezone_set('UTC'); // the original site displayed times in UTC
+define('POLL_END', getenv('POLL_END') ?: '2026-11-15');
 if (session_status() === PHP_SESSION_NONE) {
     session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax']);
     session_start();

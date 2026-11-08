@@ -1,0 +1,7 @@
+<div class="share-row">
+  <span class="share-l"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4" stroke="currentColor" stroke-width="2"/></svg> Share</span>
+  <a class="sb sb-fb" target="_blank" rel="noopener" href="https://www.facebook.com/sharer.php?u=<?= rawurlencode($shareUrl) ?>&t=<?= rawurlencode($shareTxt) ?>"><b>f</b> Facebook</a>
+  <a class="sb sb-tw" target="_blank" rel="noopener" href="https://twitter.com/share?text=<?= rawurlencode($shareTxt) ?>&url=<?= rawurlencode($shareUrl) ?>" aria-label="Share on X">𝕏</a>
+  <a class="sb sb-in" target="_blank" rel="noopener" href="https://www.linkedin.com/shareArticle?mini=true&url=<?= rawurlencode($shareUrl) ?>&title=<?= rawurlencode($shareTxt) ?>" aria-label="Share on LinkedIn">in</a>
+  <a class="sb sb-wa" target="_blank" rel="noopener" href="https://api.whatsapp.com/send?text=<?= rawurlencode($shareTxt . ' - ' . $shareUrl) ?>" aria-label="Share on WhatsApp"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm5.3 14.1c-.2.6-1.3 1.2-1.8 1.2-.5.1-1 .1-3.3-.8-2.8-1.1-4.6-4-4.7-4.2-.1-.2-1.1-1.5-1.1-2.9s.7-2 1-2.3c.3-.3.6-.3.8-.3h.6c.2 0 .4 0 .6.5l.8 2c.1.2.1.4 0 .5l-.3.5-.4.4c-.1.1-.3.3-.1.6.2.3.7 1.2 1.6 2 1.1.9 2 1.2 2.3 1.4.3.1.4.1.6-.1l.8-1c.2-.3.4-.2.6-.1l1.9.9c.3.1.5.2.5.3.1.2.1.7-.1 1.3z"/></svg></a>
+</div>
