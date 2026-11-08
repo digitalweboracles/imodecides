@@ -44,6 +44,7 @@ function migrate(PDO $pdo): void {
     if (!in_array('base_votes', $cols)) $pdo->exec('ALTER TABLE candidates ADD COLUMN base_votes INTEGER DEFAULT 0');
     if ((int)$pdo->query('SELECT COUNT(*) FROM positions')->fetchColumn() === 0) seed($pdo);
     import_legacy_votes($pdo);
+    import_legacy_hor($pdo);
 }
 
 /** Vote totals carried over from the old imodecides.com poll (read 8 Nov 2026). Runs once. */
@@ -60,6 +61,48 @@ function import_legacy_votes(PDO $pdo): void {
     $st = $pdo->prepare('UPDATE candidates SET base_votes = ? WHERE name = ? AND poll_id = (SELECT id FROM polls WHERE slug = ?)');
     foreach ($legacy as $slug => $rows) foreach ($rows as $name => $n) $st->execute([$n, $name, $slug]);
     $pdo->prepare("INSERT INTO settings (k, v) VALUES ('legacy_votes_v1', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v")->execute([date('c')]);
+}
+
+/**
+ * House of Reps constituencies carried over from the old imodecides.com (read 8 Nov 2026):
+ * candidates in their original order, recorded vote totals, answers and replies.
+ * Runs once. Never touches a poll that already has candidates/answers (so admin edits stay).
+ */
+function import_legacy_hor(PDO $pdo): void {
+    if ($pdo->query("SELECT v FROM settings WHERE k = 'legacy_hor_v1'")->fetchColumn()) return;
+    $file = __DIR__ . '/../legacy/hor-2026-11-08.json';
+    if (!is_file($file)) return;
+    $data = json_decode(file_get_contents($file), true);
+    $pdo->beginTransaction();
+    $getPoll = $pdo->prepare('SELECT id FROM polls WHERE slug = ?');
+    $cnt = fn($sql, $id) => (int)$pdo->query(sprintf($sql, (int)$id))->fetchColumn();
+    $insC = $pdo->prepare('INSERT INTO candidates (poll_id, name, party, base_votes, sort) VALUES (?, ?, ?, ?, ?)');
+    $insA = $pdo->prepare('INSERT INTO comments (poll_id, parent_id, name, body, image, created_at) VALUES (?, ?, ?, ?, ?, ?)');
+    foreach ($data['polls'] as $p) {
+        $getPoll->execute([$p['slug']]);
+        $pid = $getPoll->fetchColumn();
+        if (!$pid) continue;
+        $opened = date('Y-m-d 09:00:00', strtotime($p['opened']));
+        $pdo->prepare('UPDATE polls SET heading = ?, views = MAX(views, ?), created_at = ? WHERE id = ?')
+            ->execute([$p['heading'], $p['views'], $opened, $pid]);
+        if ($cnt('SELECT COUNT(*) FROM candidates WHERE poll_id = %d', $pid) === 0) {
+            foreach ($p['candidates'] as $i => $c) $insC->execute([$pid, $c['name'], $c['party'], $c['votes'], $i + 1]);
+        }
+        if ($cnt('SELECT COUNT(*) FROM comments WHERE poll_id = %d', $pid) === 0) {
+            $map = [];
+            $ordered = $p['comments'];
+            usort($ordered, fn($a, $b) => ($a['parent'] ? 1 : 0) <=> ($b['parent'] ? 1 : 0)); // parents first
+            foreach ($ordered as $c) {
+                if (trim($c['body']) === '' && !$c['image']) continue;
+                $parent = $c['parent'] ? ($map[$c['parent']] ?? null) : null;
+                $insA->execute([$pid, $parent, $c['name'] ?: 'Anonymous', $c['body'], $c['image'],
+                                date('Y-m-d H:i:s', strtotime($c['date']))]);
+                $map[$c['id']] = (int)$pdo->lastInsertId();
+            }
+        }
+    }
+    $pdo->prepare("INSERT INTO settings (k, v) VALUES ('legacy_hor_v1', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v")->execute([date('c')]);
+    $pdo->commit();
 }
 
 function seed(PDO $pdo): void {
@@ -147,15 +190,18 @@ function set_setting(string $k, string $v): void {
 
 /** Pull the original logo / share image / comment photo once, server-side. */
 function ensure_legacy_assets(): void {
-    if (setting('assets_fetched') === '1') return;
-    set_setting('assets_fetched', '1'); // one attempt only; re-run from Admin → Settings
+    if (setting('assets_fetched_v2') === '1') return;
+    set_setting('assets_fetched_v2', '1'); // one attempt only; re-run from Admin → Settings
     fetch_legacy_assets();
 }
 function fetch_legacy_assets(): array {
     $out = [];
     $ctx = stream_context_create(['http' => ['timeout' => 8, 'user_agent' => 'Mozilla/5.0 ImoDecides-Migrator'],
                                   'ssl' => ['verify_peer' => true]]);
-    foreach (LEGACY_ASSETS as $local => $url) {
+    $all = LEGACY_ASSETS;
+    $lf = __DIR__ . '/../legacy/hor-2026-11-08.json';
+    if (is_file($lf)) $all += (json_decode(file_get_contents($lf), true)['assets'] ?? []);
+    foreach ($all as $local => $url) {
         $dest = UPLOAD_DIR . '/' . $local;
         if (is_file($dest) && filesize($dest) > 0) { $out[$local] = 'exists'; continue; }
         $data = @file_get_contents($url, false, $ctx);
