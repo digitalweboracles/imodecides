@@ -42,7 +42,11 @@ function migrate(PDO $pdo): void {
     ");
     $cols = array_column($pdo->query('PRAGMA table_info(candidates)')->fetchAll(), 'name');
     if (!in_array('base_votes', $cols)) $pdo->exec('ALTER TABLE candidates ADD COLUMN base_votes INTEGER DEFAULT 0');
+    migrate_accounts($pdo);
     if ((int)$pdo->query('SELECT COUNT(*) FROM positions')->fetchColumn() === 0) seed($pdo);
+    if (!$pdo->query("SELECT id FROM positions WHERE slug = 'questions'")->fetchColumn()) {
+        $pdo->exec("INSERT INTO positions (slug, title, tagline, sort, hidden) VALUES ('questions', 'Questions', 'Questions from the community', 99, 1)");
+    }
     import_legacy_votes($pdo);
     import_legacy_hor($pdo);
     fix_authentic_v1($pdo);
@@ -67,6 +71,41 @@ function fix_authentic_v1(PDO $pdo): void {
         $pdo->exec("INSERT INTO settings (k, v) VALUES ('utc_times', '1') ON CONFLICT(k) DO UPDATE SET v = excluded.v");
     }
     $pdo->prepare("INSERT INTO settings (k, v) VALUES ('authentic_v1', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v")->execute([date('c')]);
+}
+
+/** Accounts + Q&A features (users, likes, follows, favourites, reports, password resets). */
+function migrate_accounts(PDO $pdo): void {
+    $pdo->exec("
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL COLLATE NOCASE, email TEXT UNIQUE NOT NULL COLLATE NOCASE,
+        pass_hash TEXT NOT NULL, display_name TEXT, avatar TEXT, bio TEXT, role TEXT DEFAULT 'user', status TEXT DEFAULT 'active',
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP, last_login TEXT);
+    CREATE TABLE IF NOT EXISTS reactions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, target_type TEXT NOT NULL, target_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, value INTEGER NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP, UNIQUE(target_type, target_id, user_id));
+    CREATE TABLE IF NOT EXISTS follows (
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, poll_id INTEGER NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP, PRIMARY KEY(user_id, poll_id, kind));
+    CREATE TABLE IF NOT EXISTS reports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, target_type TEXT NOT NULL, target_id INTEGER NOT NULL, reason TEXT NOT NULL,
+        user_id INTEGER, ip_hash TEXT, status TEXT DEFAULT 'open', created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+    CREATE TABLE IF NOT EXISTS password_resets (
+        token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        expires_at TEXT NOT NULL, used INTEGER DEFAULT 0);
+    CREATE INDEX IF NOT EXISTS idx_react_target ON reactions(target_type, target_id);
+    ");
+    $add = function (string $table, string $col, string $def) use ($pdo) {
+        $cols = array_column($pdo->query("PRAGMA table_info($table)")->fetchAll(), 'name');
+        if (!in_array($col, $cols)) $pdo->exec("ALTER TABLE $table ADD COLUMN $col $def");
+    };
+    $add('positions', 'hidden', 'INTEGER DEFAULT 0');
+    $add('polls', 'user_id', 'INTEGER');
+    $add('polls', 'kind', "TEXT DEFAULT 'poll'");
+    $add('polls', 'base_score', 'INTEGER DEFAULT 0');
+    $add('comments', 'user_id', 'INTEGER');
+    $add('comments', 'email', 'TEXT');
+    $add('comments', 'base_score', 'INTEGER DEFAULT 0');
 }
 
 /** Vote totals carried over from the old imodecides.com poll (read 8 Nov 2026). Runs once. */
@@ -215,8 +254,8 @@ function set_setting(string $k, string $v): void {
 
 /** Pull the original logo / share image / comment photo once, server-side. */
 function ensure_legacy_assets(): void {
-    if (setting('assets_fetched_v2') === '1') return;
-    set_setting('assets_fetched_v2', '1'); // one attempt only; re-run from Admin → Settings
+    if (setting('assets_fetched_v3') === '1') return;
+    set_setting('assets_fetched_v3', '1'); // one attempt only; re-run from Admin → Settings
     fetch_legacy_assets();
 }
 function fetch_legacy_assets(): array {

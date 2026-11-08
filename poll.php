@@ -35,6 +35,13 @@ $pageDesc = '';
 $shareUrl = abs_url('question/' . $poll['slug'] . '/');
 $shareTxt = $poll['heading'];
 $begin = date('F j, Y', strtotime($poll['created_at']));
+$me = current_user();
+$owner = null;
+if ($poll['user_id']) { $st = db()->prepare('SELECT username, display_name, avatar FROM users WHERE id = ?'); $st->execute([$poll['user_id']]); $owner = $st->fetch() ?: null; }
+$qScore = score('question', $pid, (int)$poll['base_score']);
+$qMine = my_reaction('question', $pid);
+$followers = follow_count($pid, 'follow'); $favs = follow_count($pid, 'favorite');
+$back = '/question/' . $poll['slug'] . '/';
 require __DIR__ . '/includes/header.php';
 ?>
 <div class="box">
@@ -45,9 +52,16 @@ require __DIR__ . '/includes/header.php';
 
   <article class="q">
     <div class="q-head">
-      <span class="q-avatar"><img src="<?= url('assets/img/avatar.svg') ?>" alt="admin"></span>
+      <div class="q-left">
+        <span class="q-avatar"><img src="<?= e(($owner && $owner['avatar']) ? media_url($owner['avatar']) : url('assets/img/avatar.svg')) ?>" alt=""></span>
+        <div class="vote-box" data-type="question" data-id="<?= $pid ?>">
+          <button class="vb-up <?= $qMine === 1 ? 'on' : '' ?>" data-do="up" title="Like" aria-label="Like">&#9650;</button>
+          <span class="vb-score"><?= $qScore ?></span>
+          <button class="vb-down <?= $qMine === -1 ? 'on' : '' ?>" data-do="down" title="Dislike" aria-label="Dislike">&#9660;</button>
+        </div>
+      </div>
       <div class="q-meta">
-        <div><a class="q-author" href="<?= url('') ?>">admin</a> <span class="q-date">Asked: <span><?= $begin ?></span></span></div>
+        <div><a class="q-author" href="<?= profile_url($owner['username'] ?? ADMIN_USER) ?>"><?= e($owner ? ($owner['display_name'] ?: $owner['username']) : 'admin') ?></a> <span class="q-date">Asked: <span><?= $begin ?></span></span></div>
         <h1 class="q-title"><?= e($poll['heading']) ?></h1>
       </div>
     </div>
@@ -56,7 +70,7 @@ require __DIR__ . '/includes/header.php';
       <?php if ($poll['description']): ?><div class="q-desc"><?= nl2br(e($poll['description'])) ?></div><?php endif; ?>
 
       <?php if (!$cands): ?>
-        <p class="muted">Candidates for this constituency will be published soon.</p>
+        <?php if ($poll['kind'] !== 'question'): ?><p class="muted">Candidates for this constituency will be published soon.</p><?php endif; ?>
       <?php else: ?>
       <div class="dem" id="poll">
         <div class="dem-title"><?= e($poll['name']) ?></div>
@@ -99,9 +113,11 @@ require __DIR__ . '/includes/header.php';
     <ul class="q-stats">
       <li><a href="#comments"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M4 4h16v12H7l-3 3z"/></svg> <?= count($all) ?> Answer<?= count($all) == 1 ? '' : 's' ?></a></li>
       <li><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 5C6 5 2 12 2 12s4 7 10 7 10-7 10-7-4-7-10-7zm0 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8z"/></svg> <?= compact_num((int)$poll['views']) ?> Views</li>
-      <li><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M9 11V6a3 3 0 0 1 6 0v5h3l-6 7-6-7z"/></svg> <?= number_format($total) ?> Votes</li>
+      <?php if ($cands): ?><li><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M9 11V6a3 3 0 0 1 6 0v5h3l-6 7-6-7z"/></svg> <?= number_format($total) ?> Votes</li><?php endif; ?>
+      <li><button class="linkbtn fol-btn <?= is_following($pid, 'follow') ? 'on' : '' ?>" data-do="follow" data-id="<?= $pid ?>"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10zm-9 10c0-4 4-7 9-7s9 3 9 7z"/></svg> <span class="fol-n"><?= $followers ?></span> Follower<?= $followers == 1 ? '' : 's' ?></button></li>
+      <li><button class="linkbtn fol-btn <?= is_following($pid, 'favorite') ? 'on' : '' ?>" data-do="favorite" data-id="<?= $pid ?>" title="Add this question to favorites"><svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 21 3.5 12.5a5 5 0 0 1 7-7L12 7l1.5-1.5a5 5 0 0 1 7 7z"/></svg> <span class="fol-n"><?= $favs ?></span></button></li>
     </ul>
-    <div class="q-foot"><span class="muted-sm">&#9888; Report</span><?php include __DIR__ . '/includes/share.php'; ?></div>
+    <div class="q-foot"><button class="linkbtn muted-sm rep-open" data-type="question" data-id="<?= $pid ?>">&#9888; Report</button><?php include __DIR__ . '/includes/share.php'; ?></div>
   </article>
 
   <div class="leave"><a class="btn-green wide" href="#respond" data-toggle-form>Leave an answer</a></div>
@@ -111,7 +127,12 @@ require __DIR__ . '/includes/header.php';
     <input type="hidden" name="poll_id" value="<?= $pid ?>">
     <input type="hidden" name="parent_id" id="parentId" value="">
     <input type="text" name="website" class="hp" tabindex="-1" autocomplete="off">
-    <label>Name<span class="req">*</span><input type="text" name="name" required maxlength="60" value="<?= e($_SESSION['cname'] ?? '') ?>"></label>
+    <?php if ($me): ?>
+      <p class="muted-sm">Logged in as <a href="<?= profile_url($me['username']) ?>"><?= e(user_name($me)) ?></a>. <a href="<?= url('logout/') ?>">Log out?</a></p>
+    <?php else: ?>
+      <label>Name<span class="req">*</span><input type="text" name="name" required maxlength="60" value="<?= e($_SESSION['cname'] ?? '') ?>"></label>
+      <label>E-Mail<input type="email" name="email" maxlength="120"></label>
+    <?php endif; ?>
     <label>Featured image <input type="file" name="image" accept="image/*"></label>
     <label>Answer<span class="req">*</span><textarea name="body" rows="6" required maxlength="2000"></textarea></label>
     <button class="btn-green" type="submit">Leave Your Answer</button>
@@ -143,4 +164,15 @@ require __DIR__ . '/includes/header.php';
     </ol>
   </section>
 </div>
+<div class="modal" id="reportModal" hidden>
+  <form class="modal-box" method="post" action="<?= url('act.php') ?>">
+    <button type="button" class="modal-x" data-close aria-label="Close">&times;</button>
+    <h3>Report</h3>
+    <p class="muted-sm" id="repLabel">Please briefly explain why you feel this question should be reported.</p>
+    <?= csrf_field() ?><input type="hidden" name="do" value="report"><input type="hidden" name="type"><input type="hidden" name="id"><input type="hidden" name="back" value="<?= e($back) ?>">
+    <label>Explain<span class="req">*</span><textarea name="reason" rows="4" required maxlength="1000"></textarea></label>
+    <button class="btn-green" type="submit">Report</button>
+  </form>
+</div>
+<script>window.IMO = {csrf: <?= json_encode(csrf_token()) ?>, act: <?= json_encode(url('act.php')) ?>, back: <?= json_encode($back) ?>, login: <?= json_encode(url('log-in/') . '?redirect_to=' . rawurlencode($back)) ?>};</script>
 <?php require __DIR__ . '/includes/footer.php'; ?>

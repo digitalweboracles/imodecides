@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/includes/functions.php';
-$positions = db()->query('SELECT * FROM positions ORDER BY sort')->fetchAll();
+$positions = db()->query('SELECT * FROM positions WHERE hidden = 0 ORDER BY sort')->fetchAll();
 $pageTitle = SITE_NAME . ' – ' . SITE_TAGLINE;
 $ogTitle = SITE_NAME;
 $hero = media_url('og.jpg');
@@ -11,7 +11,7 @@ ob_start(); ?>
       <h2>Share &amp; grow the world's knowledge!</h2>
       <p>We want to connect the people who have knowledge to the people who need it, to bring together people with different perspectives so they can understand each other better, and to empower everyone to share their knowledge.</p>
     </div>
-    <a class="btn-green" href="<?= url('house-of-representative/') ?>">Explore Candidates</a>
+    <?php if (!current_user()): ?><a class="btn-green" href="<?= url('signup/') ?>">Create A New Account</a><?php else: ?><a class="btn-green" href="<?= url('add-question/') ?>">Ask A Question</a><?php endif; ?>
   </div>
 </section>
 <?php $heroHtml = ob_get_clean();
@@ -27,7 +27,7 @@ require __DIR__ . '/includes/header.php';
     <h1 class="big">Choose a Position</h1>
     <p>Select an election position below to explore the candidates and participate in the poll.</p>
   </div>
-  <div class="gcards g4">
+  <div class="wpcols">
     <?php foreach ($positions as $p): ?>
       <div class="gcard">
         <h2><?= e($p['title']) ?></h2>

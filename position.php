@@ -6,7 +6,7 @@ $pos = $st->fetch();
 if (!$pos) { http_response_code(404); $pageTitle = 'Page not found – ' . SITE_NAME; require __DIR__ . '/includes/header.php'; echo '<div class="box page-box empty"><h1 class="big">404</h1><p>Oops! Page Not Found.</p></div>'; require __DIR__ . '/includes/footer.php'; exit; }
 
 $st = db()->prepare("SELECT pl.*, (SELECT COUNT(*) FROM candidates c WHERE c.poll_id = pl.id) AS cands
-    FROM polls pl WHERE pl.position_id = ? ORDER BY pl.sort, pl.name");
+    FROM polls pl WHERE pl.position_id = ? AND pl.kind = 'poll' ORDER BY pl.sort, pl.name");
 $st->execute([$pos['id']]);
 $polls = $st->fetchAll();
 
@@ -23,14 +23,17 @@ require __DIR__ . '/includes/header.php';
     <?php if (!$polls): ?>
       <p class="empty">Candidates for this position will be published soon.</p>
     <?php else: ?>
-    <div class="gcards g3">
-      <?php foreach ($polls as $pl): ?>
+    <?php /* same rows as the original page: a row of 3, then everything else in one row (stacks on phones) */
+      foreach ([array_slice($polls, 0, 3), array_slice($polls, 3)] as $row): if (!$row) continue; ?>
+    <div class="wpcols">
+      <?php foreach ($row as $pl): ?>
         <div class="gcard">
           <h2><?= e($pl['name']) ?></h2>
           <a class="gbtn" href="<?= poll_url($pl) ?>"><?= $pl['cands'] ? 'Explore Candidates' : 'Coming Soon' ?></a>
         </div>
       <?php endforeach; ?>
     </div>
+    <?php endforeach; ?>
     <?php endif; ?>
     <?php $shareUrl = abs_url($pos['slug'] . '/'); $shareTxt = $pageH; include __DIR__ . '/includes/share.php'; ?>
   </div>

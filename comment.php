@@ -12,7 +12,9 @@ $back = poll_url($poll);
 
 if (!empty($_POST['website'])) redirect($back); // honeypot
 
-$name = trim(mb_substr($_POST['name'] ?? '', 0, 60));
+$me = current_user();
+$name = $me ? user_name($me) : trim(mb_substr($_POST['name'] ?? '', 0, 60));
+$email = $me ? $me['email'] : (filter_var(trim($_POST['email'] ?? ''), FILTER_VALIDATE_EMAIL) ?: null);
 $body = trim(mb_substr($_POST['body'] ?? '', 0, 2000));
 if ($name === '' || mb_strlen($body) < 2) { flash('Please enter your name and answer.', 'err'); redirect($back . '#respond'); }
 
@@ -30,8 +32,8 @@ if ($parent) {
 $img = isset($_FILES['image']) ? save_upload($_FILES['image'], 'answer') : null;
 $status = setting('moderate') === '1' ? 'pending' : 'approved';
 
-db()->prepare('INSERT INTO comments (poll_id, parent_id, name, body, image, status, ip_hash) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    ->execute([$pid, $parent, $name, $body, $img, $status, ip_hash()]);
+db()->prepare('INSERT INTO comments (poll_id, parent_id, name, body, image, status, ip_hash, user_id, email) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    ->execute([$pid, $parent, $name, $body, $img, $status, ip_hash(), $me['id'] ?? null, $email]);
 $id = db()->lastInsertId();
 $_SESSION['last_comment'] = time();
 $_SESSION['cname'] = $name;

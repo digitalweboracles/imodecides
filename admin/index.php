@@ -95,6 +95,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!empty($_FILES['logo']['tmp_name']) && ($f = save_upload($_FILES['logo'], 'tmp'))) rename(UPLOAD_DIR . "/$f", UPLOAD_DIR . '/logo.png');
             if (!empty($_FILES['og']['tmp_name']) && ($f = save_upload($_FILES['og'], 'tmp'))) rename(UPLOAD_DIR . "/$f", UPLOAD_DIR . '/og.jpg');
             flash('Settings saved.'); redirect(url('admin/?p=settings'));
+        case 'user':
+            $uid = (int)$_POST['id'];
+            if ($_POST['do'] === 'delete') $db->prepare('DELETE FROM users WHERE id=?')->execute([$uid]);
+            elseif ($_POST['do'] === 'suspend') $db->prepare("UPDATE users SET status='suspended' WHERE id=?")->execute([$uid]);
+            elseif ($_POST['do'] === 'activate') $db->prepare("UPDATE users SET status='active' WHERE id=?")->execute([$uid]);
+            elseif ($_POST['do'] === 'password' && strlen($_POST['pass'] ?? '') >= 6) $db->prepare('UPDATE users SET pass_hash=? WHERE id=?')->execute([password_hash($_POST['pass'], PASSWORD_DEFAULT), $uid]);
+            flash('User updated.'); redirect(url('admin/?p=users'));
+        case 'report':
+            $rid = (int)$_POST['id'];
+            if ($_POST['do'] === 'remove') {
+                $r = $db->query('SELECT * FROM reports WHERE id=' . $rid)->fetch();
+                if ($r && $r['target_type'] === 'comment') $db->prepare('DELETE FROM comments WHERE id=?')->execute([$r['target_id']]);
+                if ($r && $r['target_type'] === 'question') $db->prepare("DELETE FROM polls WHERE id=? AND kind='question'")->execute([$r['target_id']]);
+            }
+            $db->prepare("UPDATE reports SET status='closed' WHERE id=?")->execute([$rid]);
+            flash('Report handled.'); redirect(url('admin/?p=reports'));
         case 'refetch':
             $r = fetch_legacy_assets();
             flash('Asset fetch: ' . implode(', ', array_map(fn($k, $v) => "$k $v", array_keys($r), $r)));
@@ -111,6 +127,9 @@ admin_head('Admin'); ?>
     <a class="<?= $p === 'dashboard' ? 'on' : '' ?>" href="?p=dashboard">📊 Dashboard</a>
     <a class="<?= in_array($p, ['polls', 'poll']) ? 'on' : '' ?>" href="?p=polls">🗳 Polls & candidates</a>
     <a class="<?= $p === 'comments' ? 'on' : '' ?>" href="?p=comments">💬 Answers</a>
+    <a class="<?= $p === 'users' ? 'on' : '' ?>" href="?p=users">👤 Users</a>
+    <?php $openRep = (int)db()->query("SELECT COUNT(*) FROM reports WHERE status='open'")->fetchColumn(); ?>
+    <a class="<?= $p === 'reports' ? 'on' : '' ?>" href="?p=reports">🚩 Reports<?= $openRep ? " ($openRep)" : '' ?></a>
     <a class="<?= $p === 'settings' ? 'on' : '' ?>" href="?p=settings">⚙️ Settings</a>
     <a href="<?= url('') ?>" target="_blank">↗ View site</a>
     <a href="?p=logout">⎋ Log out</a>
@@ -215,6 +234,35 @@ admin_head('Admin'); ?>
         <button class="btn btn-sm btn-danger" name="do" value="delete" onclick="return confirm('Delete?')">✕</button></form></td></tr><?php endforeach; ?>
     </table></div>
 
+  <?php elseif ($p === 'users'):
+    $q = trim($_GET['q'] ?? '');
+    $st = db()->prepare("SELECT u.*, (SELECT COUNT(*) FROM comments c WHERE c.user_id=u.id) answers, (SELECT COUNT(*) FROM polls p WHERE p.user_id=u.id) questions FROM users u WHERE u.username LIKE ? OR u.email LIKE ? ORDER BY u.created_at DESC LIMIT 300");
+    $st->execute(["%$q%", "%$q%"]); $users = $st->fetchAll(); ?>
+    <div class="a-top"><h1>Users (<?= (int)db()->query('SELECT COUNT(*) FROM users')->fetchColumn() ?>)</h1>
+      <form><input type="hidden" name="p" value="users"><input name="q" value="<?= e($q) ?>" placeholder="Search username or email"></form></div>
+    <div class="card"><table><tr><th>User</th><th>Email</th><th>Joined</th><th>Q / A</th><th>Status</th><th></th></tr>
+    <?php foreach ($users as $u): ?><tr>
+      <td><a target="_blank" href="<?= profile_url($u['username']) ?>"><b><?= e($u['username']) ?></b></a></td><td><?= e($u['email']) ?></td>
+      <td><small><?= nice_date($u['created_at']) ?></small></td><td><?= $u['questions'] ?> / <?= $u['answers'] ?></td><td><?= $u['status'] === 'active' ? '🟢' : '⛔ suspended' ?></td>
+      <td class="nowrap"><form method="post" class="inline"><?= csrf_field() ?><input type="hidden" name="a" value="user"><input type="hidden" name="id" value="<?= $u['id'] ?>">
+        <input name="pass" placeholder="new password" style="width:120px;padding:5px"><button class="btn btn-sm btn-ghost" name="do" value="password">Set</button>
+        <?php if ($u['status'] === 'active'): ?><button class="btn btn-sm btn-ghost" name="do" value="suspend">Suspend</button><?php else: ?><button class="btn btn-sm" name="do" value="activate">Activate</button><?php endif; ?>
+        <button class="btn btn-sm btn-danger" name="do" value="delete" onclick="return confirm('Delete this user?')">✕</button></form></td></tr><?php endforeach; ?>
+    </table></div>
+
+  <?php elseif ($p === 'reports'):
+    $reps = db()->query("SELECT r.*, u.username FROM reports r LEFT JOIN users u ON u.id=r.user_id ORDER BY r.status='open' DESC, r.created_at DESC LIMIT 300")->fetchAll(); ?>
+    <h1>Reports</h1>
+    <div class="card"><table><tr><th>When</th><th>What</th><th>Reason</th><th>By</th><th>Status</th><th></th></tr>
+    <?php foreach ($reps as $r):
+      if ($r['target_type'] === 'comment') { $t = db()->query('SELECT c.body, p.slug FROM comments c JOIN polls p ON p.id=c.poll_id WHERE c.id=' . (int)$r['target_id'])->fetch(); $link = $t ? poll_url($t) . '#comment-' . $r['target_id'] : null; $what = $t ? 'Answer: ' . mb_strimwidth($t['body'], 0, 80, '…') : 'Answer (deleted)'; }
+      else { $t = db()->query('SELECT heading, slug FROM polls WHERE id=' . (int)$r['target_id'])->fetch(); $link = $t ? poll_url($t) : null; $what = $t ? 'Question: ' . $t['heading'] : 'Question (deleted)'; } ?>
+      <tr><td><small><?= nice_datetime($r['created_at']) ?></small></td><td><?php if ($link): ?><a target="_blank" href="<?= $link ?>"><?= e($what) ?></a><?php else: ?><?= e($what) ?><?php endif; ?></td>
+      <td class="c-cell"><?= e($r['reason']) ?></td><td><?= e($r['username'] ?? 'guest') ?></td><td><?= $r['status'] === 'open' ? '🟡 open' : '✔ closed' ?></td>
+      <td class="nowrap"><?php if ($r['status'] === 'open'): ?><form method="post" class="inline"><?= csrf_field() ?><input type="hidden" name="a" value="report"><input type="hidden" name="id" value="<?= $r['id'] ?>">
+        <button class="btn btn-sm btn-ghost" name="do" value="dismiss">Dismiss</button><button class="btn btn-sm btn-danger" name="do" value="remove" onclick="return confirm('Remove the reported content?')">Remove content</button></form><?php endif; ?></td></tr>
+    <?php endforeach; ?></table></div>
+
   <?php elseif ($p === 'settings'): ?>
     <h1>Settings</h1>
     <form class="card form-grid" method="post" enctype="multipart/form-data"><?= csrf_field() ?><input type="hidden" name="a" value="settings">
@@ -239,5 +287,5 @@ admin_head('Admin'); ?>
 
 function admin_head(string $t): void { ?><!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
 <title><?= e($t) ?> – Imo Decides</title><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="<?= url('assets/css/style.css') ?>?v=10"></head><body class="admin-body"><?php }
+<link rel="stylesheet" href="<?= url('assets/css/style.css') ?>?v=11"></head><body class="admin-body"><?php }
 function admin_foot(): void { echo '</body></html>'; }

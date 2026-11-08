@@ -24,6 +24,8 @@ define('LEGACY_ASSETS', [
     'og.jpg'          => 'https://imodecides.com/wp-content/uploads/2026/10/cropped-IMG-20261026-WA0008-1.jpg',
     'icon.jpg'        => 'https://imodecides.com/wp-content/uploads/2026/10/cropped-IMG-20261026-WA0008-2-300x300.jpg',
     'comment-233.jpg' => 'https://imodecides.com/wp-content/uploads/2026/11/Snapchat-1179847210.jpg',
+    'signin.png'      => 'https://imodecides.com/wp-content/uploads/2019/01/signin.png',
+    'signup.png'      => 'https://imodecides.com/wp-content/uploads/2019/01/signup.png',
 ]);
 
 date_default_timezone_set('UTC'); // the original site displayed times in UTC

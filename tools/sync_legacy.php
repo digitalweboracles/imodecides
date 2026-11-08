@@ -243,3 +243,44 @@ if ($force || !setting(VFLAG)) {
     set_setting('legacy_sync_report', trim(setting('legacy_sync_report', '') . "\n--- votes ---\n" . implode("\n", $vrep)));
     echo "[sync-votes] " . implode("\n[sync-votes] ", $vrep) . "\n";
 }
+
+// ---- Phase 3: like/dislike scores of questions and answers, as shown on the old site ----
+if ($force || !setting('legacy_scores_v1')) {
+    $hor = ['aboh-mbaise-ngor-okpala','ahiazu-mbaise-ezinihitte','ehime-mbano-ihitte-uboma-obowo','ideato-north-ideato-south','mbaitoli-ikeduru',
+            'isiala-mbano-okigwe-onuimo','nwangele-isu-njaba-nkwerre','oguta-ohaji-egbema-oru-west','oru-east-orsu-orlu','owerri-municipal-owerri-west-owerri-north'];
+    $all = array_merge($hor, array_keys($sets['senate']), array_keys($sets['house-of-assembly']));
+    $srep = []; $fails = 0;
+    $key = fn($name, $body) => strtolower(preg_replace('/[^a-z0-9]/i', '', $name)) . '|' . substr(strtolower(preg_replace('/[^a-z0-9]/i', '', $body)), 0, 60);
+    foreach ($all as $slug) {
+        $st = $db->prepare('SELECT id FROM polls WHERE slug = ?'); $st->execute([$slug]); $pollId = (int)$st->fetchColumn();
+        if (!$pollId) continue;
+        $html = http(OLD . "/question/$slug/");
+        if (!$html) { $srep[] = "$slug: page FAILED"; $fails++; continue; }
+        $x = xp($html);
+        $qScore = null;
+        foreach ($x->query('//li[' . cls('vote_result') . ']') as $n) {
+            $inComment = false;
+            for ($p = $n->parentNode; $p instanceof DOMElement; $p = $p->parentNode) if ($p->nodeName === 'li' && preg_match('/\bcomment\b/', $p->getAttribute('class'))) { $inComment = true; break; }
+            if (!$inComment) { $qScore = (int)trim($n->textContent); break; }
+        }
+        if ($qScore !== null) $db->prepare('UPDATE polls SET base_score = ? WHERE id = ?')->execute([$qScore, $pollId]);
+        // answers
+        $mine = [];
+        foreach ($db->query("SELECT id, name, body FROM comments WHERE poll_id = $pollId") as $r) $mine[$key($r['name'], $r['body'])][] = (int)$r['id'];
+        $matched = 0;
+        foreach ($x->query('//li[' . cls('comment') . ']') as $li) {
+            $body = null; foreach ($li->childNodes as $c) if ($c instanceof DOMElement && str_contains($c->getAttribute('class'), 'comment-body')) $body = $c;
+            if (!$body) continue;
+            $nm = txt($x->query('.//*[@itemprop="name"]', $body)->item(0));
+            $tx = txt($x->query('.//*[@itemprop="text"]', $body)->item(0));
+            $vr = $x->query('.//li[' . cls('vote_result') . ']', $body)->item(0);
+            if (!$vr) continue;
+            $k = $key($nm, $tx);
+            if (!empty($mine[$k])) { $cid = array_shift($mine[$k]); $db->prepare('UPDATE comments SET base_score = ? WHERE id = ?')->execute([(int)trim($vr->textContent), $cid]); $matched++; }
+        }
+        $srep[] = "$slug: question score " . ($qScore ?? 'n/a') . ", $matched answer scores";
+        usleep(250000);
+    }
+    if ($fails === 0) set_setting('legacy_scores_v1', date('c'));
+    echo "[sync-scores] " . implode("\n[sync-scores] ", $srep) . "\n";
+}

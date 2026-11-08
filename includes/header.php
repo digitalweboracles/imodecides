@@ -6,7 +6,8 @@ $pageDesc  = $pageDesc ?? SITE_TAGLINE;
 $ogImg = media_url('og.jpg') ? abs_url('media.php?f=og.jpg') : null;
 $icon  = media_url('icon.jpg');
 $logo  = logo_url();
-$navPositions = db()->query('SELECT slug, title FROM positions ORDER BY sort')->fetchAll();
+$navPositions = db()->query('SELECT slug, title FROM positions WHERE hidden = 0 ORDER BY sort')->fetchAll();
+$me = current_user();
 $curPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
 ?><!doctype html>
 <html lang="en-US">
@@ -25,7 +26,7 @@ $curPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
 <?php if ($icon): ?><link rel="icon" href="<?= e($icon) ?>"><link rel="apple-touch-icon" href="<?= e($icon) ?>"><?php endif; ?>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="<?= url('assets/css/style.css') ?>?v=10">
+<link rel="stylesheet" href="<?= url('assets/css/style.css') ?>?v=11">
 </head>
 <body>
 <header class="hdr">
@@ -43,8 +44,20 @@ $curPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
       </form>
     </div>
     <div class="hdr-right">
-      <a class="hbtn hbtn-green" href="<?= url('house-of-representative/') ?>">Vote Now</a>
-      <a class="hbtn hbtn-grey" href="<?= url('search/') ?>">Search</a>
+      <?php if ($me): ?>
+        <div class="umenu">
+          <button class="umenu-btn" onclick="this.parentNode.classList.toggle('open')"><img src="<?= e($me['avatar'] ? media_url($me['avatar']) : url('assets/img/avatar.svg')) ?>" alt=""> <span><?= e(user_name($me)) ?></span> &#9662;</button>
+          <div class="umenu-dd">
+            <a href="<?= profile_url($me['username']) ?>">My Profile</a>
+            <a href="<?= profile_url($me['username']) ?>?tab=edit">Edit Profile</a>
+            <a href="<?= url('add-question/') ?>">Ask A Question</a>
+            <a href="<?= url('logout/') ?>">Logout</a>
+          </div>
+        </div>
+      <?php else: ?>
+        <a class="hbtn hbtn-green" href="<?= url('log-in/') ?>">Sign In</a>
+        <a class="hbtn hbtn-grey" href="<?= url('signup/') ?>">Sign Up</a>
+      <?php endif; ?>
     </div>
   </div>
 </header>
@@ -56,6 +69,8 @@ $curPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
       <?php foreach ($navPositions as $np): ?>
         <a class="<?= rtrim($curPath, '/') === rtrim(url($np['slug']), '/') ? 'on' : '' ?>" href="<?= url($np['slug'] . '/') ?>"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M4 4h16v4H4zM4 10h16v4H4zM4 16h16v4H4z" opacity=".8"/></svg> <?= e($np['title']) ?></a>
       <?php endforeach; ?>
+      <a class="<?= str_starts_with($curPath, url('questions')) || $curPath === url('home/') ? 'on' : '' ?>" href="<?= url('questions/') ?>"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M4 4h16v12H7l-3 3z"/></svg> Questions</a>
+      <a class="nav-ask" href="<?= url('add-question/') ?>">Ask A Question</a>
     </nav>
   </aside>
   <main class="mid">
