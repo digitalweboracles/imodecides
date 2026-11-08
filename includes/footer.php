@@ -13,7 +13,6 @@
 <footer class="ftr">
   <div class="ftr-in">
     <span>&copy; Imo Decides</span>
-    <a href="https://digitalweboracleict.com" target="_blank" rel="noopener">Powered by DWO</a>
   </div>
 </footer>
 <a href="#" class="go-up" aria-label="Back to top" onclick="window.scrollTo({top:0,behavior:'smooth'});return false;">&#8593;</a>
