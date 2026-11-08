@@ -2,9 +2,10 @@
 require_once __DIR__ . '/includes/functions.php';
 $positions = db()->query("SELECT p.*,
     (SELECT COUNT(*) FROM polls pl WHERE pl.position_id = p.id) AS polls,
-    (SELECT COUNT(*) FROM votes v JOIN polls pl ON pl.id = v.poll_id WHERE pl.position_id = p.id) AS votes
+    (SELECT COUNT(*) FROM votes v JOIN polls pl ON pl.id = v.poll_id WHERE pl.position_id = p.id)
+    + (SELECT COALESCE(SUM(c.base_votes),0) FROM candidates c JOIN polls pl ON pl.id = c.poll_id WHERE pl.position_id = p.id) AS votes
     FROM positions p ORDER BY sort")->fetchAll();
-$totalVotes = (int)db()->query('SELECT COUNT(*) FROM votes')->fetchColumn();
+$totalVotes = (int)db()->query('SELECT (SELECT COUNT(*) FROM votes) + (SELECT COALESCE(SUM(base_votes),0) FROM candidates)')->fetchColumn();
 $totalCands = (int)db()->query('SELECT COUNT(*) FROM candidates')->fetchColumn();
 $latest = db()->query("SELECT pl.*, (SELECT COUNT(*) FROM candidates c WHERE c.poll_id = pl.id) AS cands
     FROM polls pl WHERE (SELECT COUNT(*) FROM candidates c WHERE c.poll_id = pl.id) > 0

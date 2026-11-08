@@ -40,7 +40,26 @@ function migrate(PDO $pdo): void {
     CREATE INDEX IF NOT EXISTS idx_votes_poll ON votes(poll_id);
     CREATE INDEX IF NOT EXISTS idx_comments_poll ON comments(poll_id);
     ");
+    $cols = array_column($pdo->query('PRAGMA table_info(candidates)')->fetchAll(), 'name');
+    if (!in_array('base_votes', $cols)) $pdo->exec('ALTER TABLE candidates ADD COLUMN base_votes INTEGER DEFAULT 0');
     if ((int)$pdo->query('SELECT COUNT(*) FROM positions')->fetchColumn() === 0) seed($pdo);
+    import_legacy_votes($pdo);
+}
+
+/** Vote totals carried over from the old imodecides.com poll (read 8 Nov 2026). Runs once. */
+function import_legacy_votes(PDO $pdo): void {
+    $done = $pdo->query("SELECT v FROM settings WHERE k = 'legacy_votes_v1'")->fetchColumn();
+    if ($done) return;
+    $legacy = [
+        'ahiazu-mbaise-ezinihitte' => [
+            'Igbokwe Raphael Nnanna' => 1078, 'Chinedu Emeka Martins' => 348, 'Onyekwere Charles Onyebuchu' => 110,
+            'Okoro Rex Chikwesiri' => 44, 'Ejekwumadu Nnamdi John' => 5, 'Anakani Ejikeme Obinwanne' => 5,
+            'Anyanwu Chidiebere' => 2, 'Anyanwu Chinedu Noyerem' => 1, 'Ogoko Damian' => 1,
+        ],
+    ];
+    $st = $pdo->prepare('UPDATE candidates SET base_votes = ? WHERE name = ? AND poll_id = (SELECT id FROM polls WHERE slug = ?)');
+    foreach ($legacy as $slug => $rows) foreach ($rows as $name => $n) $st->execute([$n, $name, $slug]);
+    $pdo->prepare("INSERT INTO settings (k, v) VALUES ('legacy_votes_v1', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v")->execute([date('c')]);
 }
 
 function seed(PDO $pdo): void {

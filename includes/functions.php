@@ -73,7 +73,7 @@ function compact_num(int $n): string {
 }
 
 function poll_results(int $pollId): array {
-    $st = db()->prepare('SELECT c.*, (SELECT COUNT(*) FROM votes v WHERE v.candidate_id = c.id) AS votes
+    $st = db()->prepare('SELECT c.*, (SELECT COUNT(*) FROM votes v WHERE v.candidate_id = c.id) + COALESCE(c.base_votes, 0) AS votes
                          FROM candidates c WHERE c.poll_id = ? ORDER BY c.sort, c.id');
     $st->execute([$pollId]);
     $rows = $st->fetchAll();

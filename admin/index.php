@@ -50,12 +50,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             flash('Poll deleted.'); redirect(url('admin/?p=polls'));
         case 'poll_reset':
             $db->prepare('DELETE FROM votes WHERE poll_id=?')->execute([(int)$_POST['id']]);
+            $db->prepare('UPDATE candidates SET base_votes=0 WHERE poll_id=?')->execute([(int)$_POST['id']]);
             flash('Votes reset to zero.'); redirect(url('admin/?p=poll&id=' . (int)$_POST['id']));
         case 'cand_save':
             $id = (int)($_POST['id'] ?? 0); $pid = (int)$_POST['poll_id'];
             $photo = isset($_FILES['photo']) ? save_upload($_FILES['photo'], 'cand') : null;
             if ($id) {
-                $db->prepare('UPDATE candidates SET name=?, party=?, bio=?, sort=? WHERE id=?')->execute([trim($_POST['name']), trim($_POST['party']), trim($_POST['bio']), (int)$_POST['sort'], $id]);
+                $db->prepare('UPDATE candidates SET name=?, party=?, bio=?, sort=?, base_votes=? WHERE id=?')->execute([trim($_POST['name']), trim($_POST['party']), trim($_POST['bio']), (int)$_POST['sort'], max(0, (int)($_POST['base_votes'] ?? 0)), $id]);
                 if ($photo) $db->prepare('UPDATE candidates SET photo=? WHERE id=?')->execute([$photo, $id]);
                 if (isset($_POST['remove_photo'])) $db->prepare('UPDATE candidates SET photo=NULL WHERE id=?')->execute([$id]);
             } else {
@@ -118,10 +119,10 @@ admin_head('Admin'); ?>
   <?php if ($f = flash()): ?><div class="flash <?= e($f[1]) ?>"><?= e($f[0]) ?></div><?php endif; ?>
 
   <?php if ($p === 'dashboard'):
-    $s = db()->query("SELECT (SELECT COUNT(*) FROM polls) polls, (SELECT COUNT(*) FROM candidates) cands, (SELECT COUNT(*) FROM votes) votes,
+    $s = db()->query("SELECT (SELECT COUNT(*) FROM polls) polls, (SELECT COUNT(*) FROM candidates) cands, ((SELECT COUNT(*) FROM votes) + (SELECT COALESCE(SUM(base_votes),0) FROM candidates)) votes,
         (SELECT COUNT(*) FROM comments) comments, (SELECT COUNT(*) FROM comments WHERE status='pending') pending,
         (SELECT COUNT(*) FROM votes WHERE created_at >= datetime('now','-1 day')) today")->fetch();
-    $top = db()->query("SELECT pl.id, pl.heading, pl.views, COUNT(v.id) votes FROM polls pl LEFT JOIN votes v ON v.poll_id=pl.id GROUP BY pl.id ORDER BY votes DESC, pl.views DESC LIMIT 10")->fetchAll(); ?>
+    $top = db()->query("SELECT pl.id, pl.heading, pl.views, (SELECT COUNT(*) FROM votes v WHERE v.poll_id=pl.id) + (SELECT COALESCE(SUM(c2.base_votes),0) FROM candidates c2 WHERE c2.poll_id = pl.id) votes FROM polls pl ORDER BY votes DESC, pl.views DESC LIMIT 10")->fetchAll(); ?>
     <h1>Dashboard</h1>
     <div class="stats">
       <div class="card"><b><?= $s['polls'] ?></b>Polls</div>
@@ -135,7 +136,7 @@ admin_head('Admin'); ?>
     </table></div>
 
   <?php elseif ($p === 'polls'):
-    $polls = db()->query("SELECT pl.*, ps.title pos, (SELECT COUNT(*) FROM candidates c WHERE c.poll_id=pl.id) cands, (SELECT COUNT(*) FROM votes v WHERE v.poll_id=pl.id) votes
+    $polls = db()->query("SELECT pl.*, ps.title pos, (SELECT COUNT(*) FROM candidates c WHERE c.poll_id=pl.id) cands, (SELECT COUNT(*) FROM votes v WHERE v.poll_id=pl.id) + (SELECT COALESCE(SUM(c2.base_votes),0) FROM candidates c2 WHERE c2.poll_id = pl.id) votes
         FROM polls pl JOIN positions ps ON ps.id=pl.position_id ORDER BY ps.sort, pl.sort, pl.name")->fetchAll(); ?>
     <div class="a-top"><h1>Polls & candidates</h1><a class="btn" href="?p=poll">+ New poll</a></div>
     <div class="card"><table><tr><th>Position</th><th>Constituency / poll</th><th>Candidates</th><th>Votes</th><th>Status</th><th></th></tr>
@@ -171,6 +172,7 @@ admin_head('Admin'); ?>
             <span class="avatar" style="--pc:<?= party_color($c['party']) ?>"><?php if ($ph): ?><img src="<?= e($ph) ?>" alt=""><?php else: ?><?= e(initials($c['name'])) ?><?php endif; ?></span>
             <span class="cr-fields"><input name="name" value="<?= e($c['name']) ?>" required><input class="w-party" name="party" value="<?= e($c['party']) ?>" placeholder="Party">
               <input name="bio" value="<?= e($c['bio']) ?>" placeholder="Short bio (optional)">
+              <label class="sm">Imported votes <input type="number" min="0" name="base_votes" value="<?= (int)$c['base_votes'] ?>"></label>
               <input type="file" name="photo" accept="image/*"><?php if ($ph): ?><label class="check sm"><input type="checkbox" name="remove_photo"> remove photo</label><?php endif; ?></span>
             <b class="w-votes"><?= number_format($c['votes']) ?> · <?= $c['pct'] ?>%</b>
             <button class="btn btn-sm">Save</button>

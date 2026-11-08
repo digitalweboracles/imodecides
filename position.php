@@ -7,7 +7,7 @@ if (!$pos) { http_response_code(404); $pageTitle = 'Not found'; require __DIR__ 
 
 $st = db()->prepare("SELECT pl.*,
     (SELECT COUNT(*) FROM candidates c WHERE c.poll_id = pl.id) AS cands,
-    (SELECT COUNT(*) FROM votes v WHERE v.poll_id = pl.id) AS votes
+    (SELECT COUNT(*) FROM votes v WHERE v.poll_id = pl.id) + (SELECT COALESCE(SUM(c2.base_votes),0) FROM candidates c2 WHERE c2.poll_id = pl.id) AS votes
     FROM polls pl WHERE pl.position_id = ? ORDER BY pl.sort, pl.name");
 $st->execute([$pos['id']]);
 $polls = $st->fetchAll();
