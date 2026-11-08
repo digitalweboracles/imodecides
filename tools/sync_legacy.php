@@ -10,9 +10,10 @@ if (PHP_SAPI !== 'cli') { http_response_code(403); exit; }
 require_once __DIR__ . '/../includes/functions.php';
 
 const FLAG = 'legacy_senate_assembly_v1';
+const VFLAG = 'legacy_sa_votes_v1';
 const OLD = 'https://imodecides.com';
 $force = in_array('--force', $argv, true);
-if (!$force && setting(FLAG)) { echo "[sync] already done\n"; exit; }
+$skipMain = !$force && setting(FLAG);
 
 $sets = [
     'senate' => [
@@ -41,13 +42,40 @@ $partyMap = [
     'zenith labour party' => 'ZLP', 'new nigeria peoples party' => 'NNPP', 'peoples redemption party' => 'PRP',
 ];
 
+$GLOBALS['lastHttp'] = '';
 function http(string $url, ?string $post = null): ?string {
     $ch = curl_init($url);
     curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_FOLLOWLOCATION => true, CURLOPT_TIMEOUT => 30,
-        CURLOPT_USERAGENT => 'Mozilla/5.0 (ImoDecides migration)', CURLOPT_ENCODING => '']);
+        CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36',
+        CURLOPT_ENCODING => '', CURLOPT_HTTPHEADER => ['Accept: */*', 'X-Requested-With: XMLHttpRequest', 'Referer: ' . OLD . '/']]);
     if ($post !== null) { curl_setopt($ch, CURLOPT_POST, true); curl_setopt($ch, CURLOPT_POSTFIELDS, $post); }
-    $body = curl_exec($ch); $code = curl_getinfo($ch, CURLINFO_HTTP_CODE); curl_close($ch);
+    $body = curl_exec($ch); $code = curl_getinfo($ch, CURLINFO_HTTP_CODE); $err = curl_error($ch); curl_close($ch);
+    $GLOBALS['lastHttp'] = "HTTP $code" . ($err ? " ($err)" : '') . ' len=' . strlen((string)$body) . ' head=' . substr(preg_replace('/\s+/', ' ', (string)$body), 0, 160);
     return ($body !== false && $code === 200) ? $body : null;
+}
+
+/** Fetch recorded totals for one old poll: returns [normKey(label) => votes], total, begin date, diagnostics */
+function fetchVotes(int $pid): array {
+    $votes = []; $total = 0; $begin = null;
+    $j = http(OLD . '/wp-admin/admin-ajax.php', 'action=dem_ajax&dem_act=view&dem_pid=' . $pid);
+    $diag = $GLOBALS['lastHttp'];
+    $r = $j ? json_decode($j, true) : null;
+    if (!empty($r['screen_html'])) {
+        $rx = xp('<div>' . $r['screen_html'] . '</div>');
+        foreach ($rx->query('//ul[' . cls('dem-answers') . ']/li') as $li) {
+            $labNode = $rx->query('.//div[' . cls('dem-label') . ']', $li)->item(0);
+            if (!$labNode) continue;
+            $pctNode = $rx->query('.//span[' . cls('dem-label-percent-txt') . ']', $labNode)->item(0);
+            $lab = txt($labNode); $pct = txt($pctNode);
+            if ($pct !== '' && ($pos = strrpos($lab, $pct)) !== false) $lab = trim(substr($lab, 0, $pos));
+            preg_match('/^(\d+)/', $li->getAttribute('title'), $vm2);
+            $votes[normKey($lab)] = (int)($vm2[1] ?? 0);
+        }
+        if (preg_match('/Total Votes:\s*([\d,]+)/', $r['screen_html'], $tm)) $total = (int)str_replace(',', '', $tm[1]);
+        $bn = $rx->query('//span[' . cls('dem-begin-date') . ']')->item(0);
+        if ($bn) $begin = date('Y-m-d 09:00:00', strtotime(txt($bn)));
+    }
+    return [$votes, $total, $begin, $diag];
 }
 function xp(string $html): DOMXPath {
     $d = new DOMDocument(); libxml_use_internal_errors(true);
@@ -73,7 +101,7 @@ function normKey(string $s): string { return strtolower(preg_replace('/[^a-z0-9]
 
 $db = db();
 $report = [];
-foreach ($sets as $posSlug => $polls) {
+if (!$skipMain) foreach ($sets as $posSlug => $polls) {
     $posId = (int)$db->query("SELECT id FROM positions WHERE slug = " . $db->quote($posSlug))->fetchColumn();
     $sort = 0;
     foreach ($polls as $slug => $name) {
@@ -97,21 +125,7 @@ foreach ($sets as $posSlug => $polls) {
         }
 
         // vote totals from the results endpoint
-        $votes = []; $total = 0; $begin = null;
-        if ($pid && ($j = http(OLD . '/wp-admin/admin-ajax.php', 'action=dem_ajax&dem_act=view&dem_pid=' . (int)$pid))) {
-            $r = json_decode($j, true); $rx = xp('<div>' . ($r['screen_html'] ?? '') . '</div>');
-            foreach ($rx->query('//ul[' . cls('dem-answers') . ']/li') as $li) {
-                $labNode = $rx->query('.//div[' . cls('dem-label') . ']', $li)->item(0);
-                $pctNode = $rx->query('.//span[' . cls('dem-label-percent-txt') . ']', $labNode)->item(0);
-                $lab = txt($labNode); $pct = txt($pctNode);
-                if ($pct !== '') $lab = trim(substr($lab, 0, strrpos($lab, $pct)));
-                preg_match('/^(\d+)/', $li->getAttribute('title'), $vm2);
-                $votes[normKey($lab)] = (int)($vm2[1] ?? 0);
-            }
-            if (preg_match('/Total Votes:\s*([\d,]+)/', $r['screen_html'] ?? '', $tm)) $total = (int)str_replace(',', '', $tm[1]);
-            $bn = $rx->query('//span[' . cls('dem-begin-date') . ']')->item(0);
-            if ($bn) $begin = date('Y-m-d 09:00:00', strtotime(txt($bn)));
-        }
+        [$votes, $total, $begin] = $pid ? fetchVotes((int)$pid) : [[], 0, null];
         if (!$order) $order = array_keys($votes);
 
         // create or reuse poll
@@ -176,7 +190,43 @@ foreach ($sets as $posSlug => $polls) {
         usleep(300000);
     }
 }
-$failed = count(array_filter($report, fn($l) => str_contains($l, 'FAILED')));
-if ($failed === 0) set_setting(FLAG, date('c'));
-set_setting('legacy_sync_report', implode("\n", $report));
-echo "[sync] " . implode("\n[sync] ", $report) . "\n";
+if (!$skipMain) {
+    $failed = count(array_filter($report, fn($l) => str_contains($l, 'FAILED')));
+    if ($failed === 0) set_setting(FLAG, date('c'));
+    set_setting('legacy_sync_report', implode("\n", $report));
+    echo "[sync] " . implode("\n[sync] ", $report) . "\n";
+}
+
+// ---- Phase 2: fill recorded vote totals for imported Senate/Assembly polls still on zero ----
+if ($force || !setting(VFLAG)) {
+    $vrep = []; $ok = 0;
+    foreach ($sets as $posSlug => $polls) foreach ($polls as $slug => $name) {
+        $st = $db->prepare('SELECT id FROM polls WHERE slug = ?'); $st->execute([$slug]); $pollId = (int)$st->fetchColumn();
+        if (!$pollId) { $vrep[] = "$slug: poll missing"; continue; }
+        $have = (int)$db->query("SELECT COALESCE(SUM(base_votes),0) FROM candidates WHERE poll_id = $pollId")->fetchColumn();
+        if ($have > 0) { $vrep[] = "$slug: already has $have imported votes, kept"; $ok++; continue; }
+        $html = http(OLD . "/question/$slug/");
+        if (!$html) { $vrep[] = "$slug: page FAILED " . $GLOBALS['lastHttp']; continue; }
+        $x = xp($html); $dem = $x->query('//div[' . cls('democracy') . ']')->item(0);
+        $pid = $dem ? (int)(json_decode($dem->getAttribute('data-opts'), true)['pid'] ?? 0) : 0;
+        [$votes, $total, $begin, $diag] = fetchVotes($pid);
+        if (!$votes) { $vrep[] = "$slug: pid=$pid votes FAILED $diag"; continue; }
+        $order = [];
+        foreach ($x->query('.//ul[' . cls('dem-vote') . ']/li[.//input]', $dem) as $li) { $l = txt($li); if ($l !== '') $order[] = $l; }
+        $upd = $db->prepare('UPDATE candidates SET base_votes = ? WHERE poll_id = ? AND name = ?');
+        $sum = 0; $matched = 0;
+        foreach ($order as $lab) {
+            [$cn] = splitLabel($lab, $partyMap);
+            $v = $votes[normKey($lab)] ?? null;
+            if ($v === null) continue;
+            $upd->execute([$v, $pollId, $cn]); if ($upd->rowCount()) { $matched++; $sum += $v; }
+        }
+        if ($begin) $db->prepare('UPDATE polls SET created_at = ? WHERE id = ?')->execute([$begin, $pollId]);
+        $vrep[] = "$slug: $matched matched, $sum votes" . ($sum === $total ? ' (matches)' : " (old total $total)");
+        if ($sum === $total) $ok++;
+        usleep(300000);
+    }
+    if ($ok === array_sum(array_map('count', $sets))) set_setting(VFLAG, date('c'));
+    set_setting('legacy_sync_report', trim(setting('legacy_sync_report', '') . "\n--- votes ---\n" . implode("\n", $vrep)));
+    echo "[sync-votes] " . implode("\n[sync-votes] ", $vrep) . "\n";
+}
