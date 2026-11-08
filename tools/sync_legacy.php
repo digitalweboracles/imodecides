@@ -100,6 +100,7 @@ function splitLabel(string $l, array $map): array {
 function normKey(string $s): string { return strtolower(preg_replace('/[^a-z0-9]/i', '', $s)); }
 
 $db = db();
+$db->exec('PRAGMA busy_timeout = 30000');
 $report = [];
 if (!$skipMain) foreach ($sets as $posSlug => $polls) {
     $posId = (int)$db->query("SELECT id FROM positions WHERE slug = " . $db->quote($posSlug))->fetchColumn();
@@ -213,15 +214,27 @@ if ($force || !setting(VFLAG)) {
         if (!$votes) { $vrep[] = "$slug: pid=$pid votes FAILED $diag"; continue; }
         $order = [];
         foreach ($x->query('.//ul[' . cls('dem-vote') . ']/li[.//input]', $dem) as $li) { $l = txt($li); if ($l !== '') $order[] = $l; }
-        $upd = $db->prepare('UPDATE candidates SET base_votes = ? WHERE poll_id = ? AND name = ?');
         $sum = 0; $matched = 0;
-        foreach ($order as $lab) {
-            [$cn] = splitLabel($lab, $partyMap);
-            $v = $votes[normKey($lab)] ?? null;
-            if ($v === null) continue;
-            $upd->execute([$v, $pollId, $cn]); if ($upd->rowCount()) { $matched++; $sum += $v; }
+        for ($try = 1; $try <= 8; $try++) {
+            try {
+                $db->beginTransaction();
+                $upd = $db->prepare('UPDATE candidates SET base_votes = ? WHERE poll_id = ? AND name = ?');
+                $sum = 0; $matched = 0;
+                foreach ($order as $lab) {
+                    [$cn] = splitLabel($lab, $partyMap);
+                    $v = $votes[normKey($lab)] ?? null;
+                    if ($v === null) continue;
+                    $upd->execute([$v, $pollId, $cn]); if ($upd->rowCount()) { $matched++; $sum += $v; }
+                }
+                if ($begin) $db->prepare('UPDATE polls SET created_at = ? WHERE id = ?')->execute([$begin, $pollId]);
+                $db->commit();
+                break;
+            } catch (PDOException $e) {
+                if ($db->inTransaction()) $db->rollBack();
+                if ($try === 8) { $vrep[] = "$slug: write FAILED " . $e->getMessage(); continue 2; }
+                sleep(2 * $try);
+            }
         }
-        if ($begin) $db->prepare('UPDATE polls SET created_at = ? WHERE id = ?')->execute([$begin, $pollId]);
         $vrep[] = "$slug: $matched matched, $sum votes" . ($sum === $total ? ' (matches)' : " (old total $total)");
         if ($sum === $total) $ok++;
         usleep(300000);
