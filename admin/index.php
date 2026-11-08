@@ -231,6 +231,7 @@ admin_head('Admin'); ?>
       <p class="muted small">Logo: <?= media_url('logo.png') ? '✅' : '❌' ?> · Share image: <?= media_url('og.jpg') ? '✅' : '❌' ?> · Icon: <?= media_url('icon.jpg') ? '✅' : '❌' ?> · Answer photo: <?= media_url('comment-233.jpg') ? '✅' : '❌' ?></p>
       <button class="btn btn-ghost">Re-download from imodecides.com</button>
     </form>
+    <?php if ($rep = setting('legacy_sync_report')): ?><div class="card"><h2>Old-site import report</h2><pre style="white-space:pre-wrap;font-size:.8rem"><?= e($rep) ?></pre></div><?php endif; ?>
   <?php endif; ?>
   </div>
 </div>
